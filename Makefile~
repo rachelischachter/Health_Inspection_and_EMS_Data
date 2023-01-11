@@ -1,0 +1,66 @@
+all: FinalGraph.pdf 
+
+clean:
+	rm popZips emsZips schoolZips restZips srCombined relevantPops emsPopZips allThree.txt goyishSchools goyishZips treifRests treifZips goyishData FinalGraph.pdf
+
+# split population into (zip | population)
+popZips: population.gz
+	gawk -f ./popMap.awk > popZips
+
+# split EMS data into (zip | #of incidents)
+emsZips: EMS_Incident_Dispatch_Data.tsv.gz 
+	gawk -f ./emsMap.awk > emsZips
+
+# split school data into (zip | #ofviolations)
+schoolZips: cafeterias.tsv 
+	gawk -f ./schoolMap.awk > schoolZips
+
+# split restaurant data into (zip | #ofviolations)
+restZips: restaurants.gz restMap.awk 
+	gawk -f ./restMap.awk > restZips
+
+# aggregate restZips and schoolZips into 1 big historgram 
+srCombined: schoolZips restZips 
+	spark-submit ./combinedZips.py > srCombined 
+
+# generate a list of populations for relevant zipcodes (zipcode | population)
+relevantPops: popZips srCombined
+	gawk -f relPop.awk > relevantPops
+
+# standardizes ems incidents based on zipcode population 
+emsPopZips: perZip.awk emsZips relevantPops
+	gawk -f ./perZip.awk > emsPopZips
+
+# makes histo of (zip | violations | incidents) 
+allThree.txt: srCombined emsPopZips
+	gawk -f ./allthree.awk > allThree.txt
+
+# narrows down school data to only nonJewish schools
+goyishSchools: frumSchools.txt cafeterias.tsv 
+	gawk -f ./noYeshivas.awk > goyishSchools
+
+# split school data into histogram (zip | violations)
+goyishZips: goyishSchools 
+	gawk -f ./goyishMap.awk > goyishZips
+
+# filter out to only be nonKosher restaurants 
+treifRests: restaurants.gz 
+	gawk -f ./noKosher.awk > treifRests
+
+# split rest data into historgram
+treifZips: treifRests 
+	gawk -f ./treifMap.awk > treifZips
+
+# combine school and restaurant data 
+goyishCombined: goyishZips treifZips
+	gawk -f ./goyishCombinedZips.awk > goyishCombined
+
+# combine school and rest. data with EMS data
+goyishData: goyishCombined emsPopZips
+	gawk -f ./goyishAllThree.awk > goyishData
+
+# graph the violations vs. incidents for both datasets. 
+FinalGraph.pdf: allThree.txt goyishData 
+	python3 ./finalGraphs.py 
+
+
